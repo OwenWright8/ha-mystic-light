@@ -29,14 +29,17 @@ Requires MSI Center with the Mystic Light component installed.
 
 ## 2. Install the integration (HACS)
 
-1. HACS → ⋮ → **Custom repositories** → add this repo's URL, category **Integration**.
+1. HACS â†’ â‹® â†’ **Custom repositories** â†’ add this repo's URL, category **Integration**.
 2. Download **MSI Mystic Light**, restart Home Assistant.
-3. Settings → Devices & services → **Add integration** → *MSI Mystic Light*.
+3. Settings â†’ Devices & services â†’ **Add integration** â†’ *MSI Mystic Light*.
    Enter the PC's IP, port `8765`, and the `token` from `config.json`.
 
 ## Notes
 
 - Brightness is applied by scaling the colour, which works on every device the SDK supports.
+- **Power cap** (integration options, default 60%): bright white can draw more current than an ARGB
+  header supplies, which makes fans flicker. Total R+G+B output is capped at this share of full white;
+  saturated colours keep full brightness, and HA still shows the brightness you asked for.
 - Turning a light off uses the device's `Off` style when available, otherwise black.
 - Picking a colour while an animated style (e.g. Rainbow) is active switches to a solid style.
 - State is polled every 15 seconds, so changes made in MSI Center show up shortly after.

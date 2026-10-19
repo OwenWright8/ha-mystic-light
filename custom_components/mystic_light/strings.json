@@ -19,5 +19,16 @@
     "abort": {
       "already_configured": "This bridge is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Power cap",
+        "description": "Limits total LED output as a share of full white. Bright white can draw more than an ARGB header supplies, which makes fans flicker; saturated colours are unaffected until they exceed the cap.",
+        "data": {
+          "max_power": "Maximum output"
+        }
+      }
+    }
   }
 }

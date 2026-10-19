@@ -20,7 +20,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import MysticLightConfigEntry
 from .api import MysticLightError
-from .const import DOMAIN, SOLID_STYLES
+from .const import CONF_MAX_POWER, DEFAULT_MAX_POWER, DOMAIN, SOLID_STYLES
 from .coordinator import MysticLightCoordinator
 
 OFF = "off"
@@ -58,6 +58,25 @@ class MysticLight(CoordinatorEntity[MysticLightCoordinator], LightEntity):
         )
         self._last_rgb: tuple[int, int, int] = (255, 255, 255)
         self._last_brightness = 255
+        # (rgb sent to the bridge, requested rgb, requested brightness): lets us report
+        # what the user asked for even when the power cap dimmed the output.
+        self._commanded: tuple[tuple[int, ...], tuple[int, ...], int] | None = None
+
+    @property
+    def _requested(self) -> tuple[tuple[int, ...], int] | None:
+        """Requested colour/brightness if the LED still shows what we last sent."""
+        if self._commanded and self._led and tuple(self._led["rgb"]) == self._commanded[0]:
+            return self._commanded[1], self._commanded[2]
+        return None
+
+    def _apply_power_cap(self, rgb: list[int]) -> list[int]:
+        """Scale down colours whose total draw exceeds the configured share of full white."""
+        options = self.coordinator.config_entry.options
+        limit = 765 * options.get(CONF_MAX_POWER, DEFAULT_MAX_POWER) / 100
+        total = sum(rgb)
+        if total <= limit:
+            return rgb
+        return [int(c * limit / total) for c in rgb]
 
     @property
     def _led(self) -> dict[str, Any] | None:
@@ -78,12 +97,18 @@ class MysticLight(CoordinatorEntity[MysticLightCoordinator], LightEntity):
 
     @property
     def brightness(self) -> int | None:
-        return max(self._led["rgb"]) if self.is_on else None
+        if not self.is_on:
+            return None
+        requested = self._requested
+        return requested[1] if requested else max(self._led["rgb"])
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
         if not self.is_on:
             return self._last_rgb
+        requested = self._requested
+        if requested:
+            return requested[0]
         r, g, b = self._led["rgb"]
         peak = max(r, g, b)
         return (round(r * 255 / peak), round(g * 255 / peak), round(b * 255 / peak))
@@ -104,7 +129,8 @@ class MysticLight(CoordinatorEntity[MysticLightCoordinator], LightEntity):
         led = self._led
         rgb = kwargs.get(ATTR_RGB_COLOR) or self.rgb_color or self._last_rgb
         brightness = kwargs.get(ATTR_BRIGHTNESS) or (self.brightness if self.is_on else self._last_brightness)
-        payload: dict[str, Any] = {"rgb": [round(c * brightness / 255) for c in rgb]}
+        output = self._apply_power_cap([round(c * brightness / 255) for c in rgb])
+        payload: dict[str, Any] = {"rgb": output}
         if ATTR_EFFECT in kwargs:
             payload["style"] = kwargs[ATTR_EFFECT]
         else:
@@ -115,6 +141,7 @@ class MysticLight(CoordinatorEntity[MysticLightCoordinator], LightEntity):
                 # Picking a colour while on e.g. Rainbow switches to a solid style.
                 payload["fallback_style"] = solid
         self._last_rgb, self._last_brightness = tuple(rgb), brightness
+        self._commanded = (tuple(output), tuple(rgb), brightness)
         await self._send(payload)
 
     async def async_turn_off(self, **kwargs: Any) -> None:

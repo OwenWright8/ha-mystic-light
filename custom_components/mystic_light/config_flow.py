@@ -6,12 +6,14 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN
+from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import NumberSelector, NumberSelectorConfig, NumberSelectorMode
 
 from .api import MysticLightApi, MysticLightAuthError, MysticLightError
-from .const import DEFAULT_PORT, DOMAIN
+from .const import CONF_MAX_POWER, DEFAULT_MAX_POWER, DEFAULT_PORT, DOMAIN
 
 SCHEMA = vol.Schema(
     {
@@ -24,6 +26,11 @@ SCHEMA = vol.Schema(
 
 class MysticLightConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> MysticLightOptionsFlow:
+        return MysticLightOptionsFlow()
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -53,4 +60,23 @@ class MysticLightConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(SCHEMA, user_input),
             errors=errors,
+        )
+
+
+class MysticLightOptionsFlow(OptionsFlow):
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        current = self.config_entry.options.get(CONF_MAX_POWER, DEFAULT_MAX_POWER)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MAX_POWER, default=current): NumberSelector(
+                        NumberSelectorConfig(
+                            min=10, max=100, step=5, unit_of_measurement="%", mode=NumberSelectorMode.SLIDER
+                        )
+                    )
+                }
+            ),
         )
