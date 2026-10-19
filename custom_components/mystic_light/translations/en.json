@@ -1,0 +1,23 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MSI Mystic Light bridge",
+        "description": "Address of the Windows PC running the Mystic Light bridge, and the token from its config.json.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "token": "Token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the bridge, or the Mystic Light SDK is not ready (is the bridge running elevated and MSI Center installed?).",
+      "invalid_auth": "The bridge rejected the token.",
+      "no_leds": "The bridge is running but reported no LEDs."
+    },
+    "abort": {
+      "already_configured": "This bridge is already configured."
+    }
+  }
+}
