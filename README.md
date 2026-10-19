@@ -29,9 +29,9 @@ Requires MSI Center with the Mystic Light component installed.
 
 ## 2. Install the integration (HACS)
 
-1. HACS â†’ â‹® â†’ **Custom repositories** â†’ add this repo's URL, category **Integration**.
+1. HACS → ⋮ → **Custom repositories** → add this repo's URL, category **Integration**.
 2. Download **MSI Mystic Light**, restart Home Assistant.
-3. Settings â†’ Devices & services â†’ **Add integration** â†’ *MSI Mystic Light*.
+3. Settings → Devices & services → **Add integration** → *MSI Mystic Light*.
    Enter the PC's IP, port `8765`, and the `token` from `config.json`.
 
 ## Notes
