@@ -76,18 +76,24 @@ public static class Bridge
         {
             try { MLAPI_Release(); } catch { }
             Check("MLAPI_Initialize", MLAPI_Initialize());
-            string[] t, c;
-            Check("MLAPI_GetDeviceInfo", MLAPI_GetDeviceInfo(out t, out c));
+            BuildCatalog();
             ready = true;
-            Log("Mystic Light SDK ready");
+            Log("Mystic Light SDK ready (" + catalog.Count + " LED areas)");
         }
         catch (SdkException e) { lastInitError = e.Message; throw; }
         finally { lastInitAttempt = DateTime.UtcNow; }
     }
 
-    static List<Dictionary<string, object>> ListLeds()
+    class LedInfo { public string Type, DevName, Name; public int Index; public string[] Styles; }
+
+    // Device list, names and style lists never change while the SDK is up, so they are
+    // read once per init. Polls then only read style and colour: the array-returning
+    // calls are the ones most exposed to the SDK's memory handling.
+    static List<LedInfo> catalog = new List<LedInfo>();
+
+    static void BuildCatalog()
     {
-        var result = new List<Dictionary<string, object>>();
+        var leds = new List<LedInfo>();
         string[] types, counts;
         Check("MLAPI_GetDeviceInfo", MLAPI_GetDeviceInfo(out types, out counts));
         for (int i = 0; i < types.Length; i++)
@@ -96,29 +102,49 @@ public static class Bridge
             string devName = MLAPI_GetDeviceName(types[i], out devNames) == OK && devNames != null && devNames.Length > 0 ? devNames[0] : types[i];
             int n;
             int.TryParse(counts[i], out n);
-            for (int j = 0; j < n; j++) result.Add(ReadLed(types[i], j, devName));
+            for (int j = 0; j < n; j++)
+            {
+                string name;
+                string[] styles;
+                Check("MLAPI_GetLedInfo", MLAPI_GetLedInfo(types[i], j, out name, out styles));
+                leds.Add(new LedInfo { Type = types[i], Index = j, DevName = devName, Name = name ?? (types[i] + " " + j), Styles = styles ?? new string[0] });
+            }
         }
+        catalog = leds;
+    }
+
+    static List<Dictionary<string, object>> ListLeds()
+    {
+        var result = new List<Dictionary<string, object>>();
+        foreach (var led in catalog) result.Add(ReadLed(led));
         return result;
     }
 
-    static Dictionary<string, object> ReadLed(string type, int index, string devName)
+    static LedInfo FindLed(string type, int index)
     {
-        string name, style;
-        string[] styles;
+        foreach (var led in catalog) if (led.Type == type && led.Index == index) return led;
+        throw new ArgumentException("Unknown LED " + type + "[" + index + "]");
+    }
+
+    static Dictionary<string, object> ReadLed(LedInfo led)
+    {
+        string style;
         int r, g, b;
-        Check("MLAPI_GetLedInfo", MLAPI_GetLedInfo(type, index, out name, out styles));
-        if (MLAPI_GetLedStyle(type, index, out style) != OK) style = "";
-        if (MLAPI_GetLedColor(type, index, out r, out g, out b) != OK) { r = g = b = 0; }
+        int res = MLAPI_GetLedStyle(led.Type, led.Index, out style);
+        if (res == TIMEOUT || res == NOT_INITIALIZED) Check("MLAPI_GetLedStyle", res);
+        if (res != OK) style = "";
+        if (MLAPI_GetLedColor(led.Type, led.Index, out r, out g, out b) != OK) { r = g = b = 0; }
         return new Dictionary<string, object> {
-            { "id", type + "_" + index }, { "type", type }, { "index", index },
-            { "device_name", devName }, { "name", name ?? (type + " " + index) },
-            { "style", style ?? "" }, { "styles", styles ?? new string[0] },
+            { "id", led.Type + "_" + led.Index }, { "type", led.Type }, { "index", led.Index },
+            { "device_name", led.DevName }, { "name", led.Name },
+            { "style", style ?? "" }, { "styles", led.Styles },
             { "rgb", new[] { r, g, b } },
         };
     }
 
     static Dictionary<string, object> SetLed(string type, int index, Dictionary<string, object> body)
     {
+        LedInfo led = FindLed(type, index);
         object style, rgb, fallback;
         if (body.TryGetValue("style", out style) && style != null)
             Check("MLAPI_SetLedStyle", MLAPI_SetLedStyle(type, index, style.ToString()));
@@ -135,7 +161,7 @@ public static class Bridge
             }
             if (res != NOT_SUPPORTED) Check("MLAPI_SetLedColor", res);
         }
-        return ReadLed(type, index, type);
+        return ReadLed(led);
     }
 
     public static void Run(int port, string authToken, string logFile)

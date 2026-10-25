@@ -1,10 +1,17 @@
-# Runs the Mystic Light HTTP bridge. Must run elevated (the MSI SDK requires admin).
-$ErrorActionPreference = 'Stop'
+# Supervisor for the Mystic Light bridge. Must run elevated (the MSI SDK requires admin).
+# MSI's SDK can crash the process outright (seen: heap corruption after days of polling),
+# which nothing inside the process can catch, so the bridge runs as a child and is
+# restarted whenever it exits.
 $here = $PSScriptRoot
-$config = Get-Content (Join-Path $here 'config.json') -Raw | ConvertFrom-Json
 $log = Join-Path $here 'bridge.log'
-if ((Test-Path $log) -and (Get-Item $log).Length -gt 1MB) { Move-Item $log "$log.old" -Force }
+$worker = Join-Path $here 'bridge-worker.ps1'
 
-$source = (Get-Content (Join-Path $here 'Bridge.cs') -Raw).Replace('__DLL__', (Join-Path $here 'MysticLight_SDK_x64.dll'))
-Add-Type -TypeDefinition $source -ReferencedAssemblies System.Web.Extensions
-[Bridge]::Run([int]$config.port, [string]$config.token, $log)
+while ($true) {
+    $started = Get-Date
+    $proc = Start-Process powershell.exe -PassThru -Wait -WindowStyle Hidden `
+        -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$worker`""
+    $code = '0x{0:X8}' -f $proc.ExitCode
+    Add-Content $log "$((Get-Date).ToString('s')) Bridge exited with $code after $([int]((Get-Date) - $started).TotalMinutes) min; restarting"
+    # Back off if it is dying immediately (e.g. MSI Center not up yet after logon).
+    if (((Get-Date) - $started).TotalSeconds -lt 30) { Start-Sleep 30 } else { Start-Sleep 3 }
+}

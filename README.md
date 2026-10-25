@@ -43,3 +43,5 @@ Requires MSI Center with the Mystic Light component installed.
 - Turning a light off uses the device's `Off` style when available, otherwise black.
 - Picking a colour while an animated style (e.g. Rainbow) is active switches to a solid style.
 - State is polled every 15 seconds, so changes made in MSI Center show up shortly after.
+- The bridge runs under a small supervisor (`MysticLightBridge.ps1`) that restarts it within seconds
+  if MSI's SDK crashes the process, which has been seen after days of polling.
