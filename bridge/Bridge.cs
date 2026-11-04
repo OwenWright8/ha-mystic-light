@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -63,15 +64,11 @@ public static class Bridge
         throw new SdkException(call, code);
     }
 
-    static DateTime lastInitAttempt = DateTime.MinValue;
-    static string lastInitError = "not initialised yet";
+    static string lastInitError = null;
 
     static void EnsureReady()
     {
         if (ready) return;
-        // A failed SDK init blocks for over a minute, so don't retry on every request.
-        if (DateTime.UtcNow - lastInitAttempt < TimeSpan.FromSeconds(60))
-            throw new SdkException(NOT_INITIALIZED, "SDK not ready (" + lastInitError + "); retrying shortly");
         try
         {
             try { MLAPI_Release(); } catch { }
@@ -80,8 +77,32 @@ public static class Bridge
             ready = true;
             Log("Mystic Light SDK ready (" + catalog.Count + " LED areas)");
         }
-        catch (SdkException e) { lastInitError = e.Message; throw; }
-        finally { lastInitAttempt = DateTime.UtcNow; }
+        catch (SdkException e)
+        {
+            // Once the SDK has timed out, re-initialising in the same process never
+            // recovers (seen after logon, before MSI Center is fully up). Exit so the
+            // supervisor starts a fresh process.
+            lastInitError = e.Message;
+            Log(e.Message + "; exiting so the supervisor restarts the bridge");
+            Environment.Exit(3);
+        }
+    }
+
+    // Exit if the supervisor goes away (e.g. the task was stopped), so no orphaned
+    // bridge keeps holding the port.
+    static void WatchParent(int parentPid)
+    {
+        Process parent;
+        try { parent = Process.GetProcessById(parentPid); }
+        catch (ArgumentException) { Log("Supervisor " + parentPid + " not found; exiting"); Environment.Exit(4); return; }
+        var t = new Thread(() =>
+        {
+            parent.WaitForExit();
+            Log("Supervisor exited; exiting");
+            Environment.Exit(4);
+        });
+        t.IsBackground = true;
+        t.Start();
     }
 
     class LedInfo { public string Type, DevName, Name; public int Index; public string[] Styles; }
@@ -164,14 +185,15 @@ public static class Bridge
         return ReadLed(led);
     }
 
-    public static void Run(int port, string authToken, string logFile)
+    public static void Run(int port, string authToken, string logFile, int parentPid)
     {
         token = authToken ?? "";
         logPath = logFile;
+        if (parentPid > 0) WatchParent(parentPid);
         var listener = new TcpListener(IPAddress.Any, port);
         listener.Start();
         Log("Listening on port " + port);
-        lock (Sdk) { try { EnsureReady(); } catch (Exception e) { Log(e.Message); } }
+        lock (Sdk) EnsureReady();
         // Requests are served one at a time on this thread so every SDK call
         // happens on the thread that initialised it.
         while (true) Handle(listener.AcceptTcpClient());
